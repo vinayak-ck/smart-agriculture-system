@@ -1,0 +1,10 @@
+Django
+djangorestframework
+numpy
+pandas
+opencv-python
+tensorflow
+torch
+scikit-learn
+mysqlclient
+Pillow

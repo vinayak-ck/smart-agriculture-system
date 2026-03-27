@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Smart Agriculture Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+
+<h1>🌱 Smart Agriculture Dashboard</h1>
+
+<!-- 🔹 Sensor Table -->
+<h2>Real-Time Sensor Data</h2>
+<table border="1" id="sensorTable">
+    <thead>
+        <tr>
+            <th>Temp</th>
+            <th>Humidity</th>
+            <th>pH</th>
+            <th>N</th>
+            <th>P</th>
+            <th>K</th>
+            <th>Time</th>
+        </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+
+<!-- 🔹 Graph -->
+<h2>Crop Growth Graph</h2>
+<canvas id="growthChart"></canvas>
+
+<!-- 🔹 Upload Section -->
+<h2>Disease Detection</h2>
+<input type="file" id="imageInput">
+<button onclick="uploadImage()">Predict Disease</button>
+
+<p id="result"></p>
+
+<script src="/static/js/main.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Django
+db.sqlite3
+media/
+
+# ML
+*.h5
+*.pkl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (IMPORTANT)
+data/

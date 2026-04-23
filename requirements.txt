@@ -1,0 +1,9 @@
+Django>=4.2,<5.0
+djangorestframework
+django-cors-headers
+Pillow
+scikit-learn
+numpy
+joblib
+torch
+torchvision

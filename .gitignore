@@ -1,0 +1,14 @@
+# Django
+db.sqlite3
+*.pyc
+__pycache__/
+media/
+static/
+
+# Dataset (too large)
+dataset/
+
+# Environment
+.env
+venv/
+env/

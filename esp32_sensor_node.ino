@@ -17,12 +17,13 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "DHT.h"
+#define RELAY_PIN 26 
 
 // ─── CONFIG ─────────────────────────────────────────────────────────────────
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 // Your PC's local IP — run `hostname -I` (Linux) or `ipconfig` (Windows)
-const char* SERVER_URL    = "http://192.168.1.100:8000/api/sensor-data";
+const char* SERVER_URL = "http://172.16.22.149:8000/api/sensor-data";
 const char* DEVICE_ID     = "ESP32_GG_01";   // GG = Green Gram
 
 // ─── PIN DEFINITIONS ────────────────────────────────────────────────────────
@@ -66,6 +67,8 @@ void setup() {
     delay(500); Serial.print(".");
   }
   Serial.println("\nConnected! IP: " + WiFi.localIP().toString());
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, HIGH);  // HIGH = relay OFF (active LOW relay)
 }
 
 // ─── pH READING ─────────────────────────────────────────────────────────────
@@ -123,6 +126,18 @@ NPKValues readNPK() {
   return result;
 }
 
+
+// Add this function:
+void controlPump(float moisture) {
+  if (moisture < 30) {
+    digitalWrite(RELAY_PIN, LOW);   // Turn pump ON
+    Serial.println("💧 Pump ON — soil moisture low");
+  } else {
+    digitalWrite(RELAY_PIN, HIGH);  // Turn pump OFF
+    Serial.println("✓ Pump OFF — moisture OK");
+  }
+}
+
 // ─── MAIN LOOP ──────────────────────────────────────────────────────────────
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -138,7 +153,7 @@ void loop() {
   float ph       = readPH();
   float moisture = readMoisture();
   NPKValues npk  = readNPK();
-
+  controlPump(moisture);
   // DHT11 failure fallback
   if (isnan(temp) || isnan(humidity)) {
     Serial.println("[DHT11] Read failed — using fallback");

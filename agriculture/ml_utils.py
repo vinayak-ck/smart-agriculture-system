@@ -346,9 +346,24 @@ def predict_disease(image_path):
         tensor = transform(img).unsqueeze(0)
 
         if DISEASE_MODEL_PATH.exists():
-            model = tv_models.resnet18(pretrained=False)
-            model.fc = torch.nn.Linear(512, len(get_disease_classes()))
-            model.load_state_dict(torch.load(DISEASE_MODEL_PATH, map_location='cpu'))
+
+            model = tv_models.resnet18(weights=None)
+
+            model.fc = torch.nn.Sequential(
+                        torch.nn.Dropout(0.5),
+                        torch.nn.Linear(
+                        model.fc.in_features,
+                        len(get_disease_classes())
+                        )
+                    )
+
+            model.load_state_dict(
+            torch.load(
+                        DISEASE_MODEL_PATH,
+                        map_location='cpu'
+                        )
+                    )
+
             model.eval()
             with torch.no_grad():
                 output = model(tensor)
@@ -359,7 +374,9 @@ def predict_disease(image_path):
             disease_name = classes[idx] if idx < len(classes) else "Unknown"
             model_acc = get_disease_model_accuracy()
             treatment = DISEASE_TREATMENT.get(disease_name, DISEASE_TREATMENT["Healthy"])
-            return disease_name != "Healthy", disease_name, confidence, model_acc, treatment
+            is_healthy = "healthy" in disease_name.lower()
+
+            return (not is_healthy,disease_name,confidence,model_acc,treatment)
         else:
             return _colour_heuristic(image_path)
     except Exception as e:

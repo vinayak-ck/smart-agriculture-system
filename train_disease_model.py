@@ -1,204 +1,343 @@
-"""
-train_disease_model.py
-──────────────────────
-Train the Green Gram / Rice leaf disease CNN (ResNet18, transfer learning).
-
-DATASET SETUP (do this first):
-─────────────────────────────
-Option A — Rice Disease Dataset (recommended for green gram, similar diseases):
-    Download: https://www.kaggle.com/datasets/minhhuy2810/rice-diseases-image-dataset
-    After download, your folder should look like:
-        dataset/
-            Bacterial Leaf Blight/   (images here)
-            Brown Spot/
-            Healthy/
-            Leaf Blast/
-
-Option B — PlantVillage (larger, more classes):
-    Download: https://www.kaggle.com/datasets/abdallahalidev/plantvillage-dataset
-    Use the rice/legume subset.
-
-Usage:
-    pip install torch torchvision scikit-learn Pillow
-    python train_disease_model.py --data ./dataset --epochs 15
-
-Output:
-    ml_models/disease_model.pth          ← paste here
-    ml_models/disease_model_accuracy.txt ← accuracy stored here
-    ml_models/disease_classes.txt        ← class names (order matters!)
-"""
-
 import argparse
-import os
-import json
 from pathlib import Path
 
 import torch
 import torch.nn as nn
-import torchvision.transforms as transforms
-import torchvision.models as models
-from torchvision.datasets import ImageFolder
-from torch.utils.data import DataLoader, random_split
-from sklearn.metrics import accuracy_score, classification_report
+# print(torch.cuda.is_available())
+# print(torch.cuda.device_count())
+# print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")
 
-MODEL_DIR = Path(__file__).resolve().parent / 'ml_models'
+from torchvision import transforms
+from torchvision import datasets
+from torchvision import models
+
+from torchvision.models import ResNet18_Weights
+
+from torch.utils.data import DataLoader
+from torch.utils.data import random_split
+
+MODEL_DIR = Path("ml_models")
 
 
-def train(data_dir, epochs=15, batch_size=32, lr=1e-4):
-    data_dir = Path(data_dir)
-    if not data_dir.exists():
-        print(f"ERROR: Dataset folder not found: {data_dir}")
-        print("Download from: https://www.kaggle.com/datasets/minhhuy2810/rice-diseases-image-dataset")
-        return
+def train(data_dir, epochs=30, batch_size=32, lr=1e-4):
 
-    # ── Data transforms ────────────────────────────────────────────────────
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
+
+    print("Device:", device)
+
     train_transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
-        transforms.RandomRotation(20),
-        transforms.ColorJitter(brightness=0.25, contrast=0.25, saturation=0.2),
+        transforms.RandomRotation(25),
+
+        transforms.ColorJitter(
+            brightness=0.3,
+            contrast=0.3,
+            saturation=0.3
+        ),
+
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+
+        transforms.Normalize(
+            [0.485, 0.456, 0.406],
+            [0.229, 0.224, 0.225]
+        )
     ])
+
     val_transform = transforms.Compose([
         transforms.Resize((224, 224)),
+
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+
+        transforms.Normalize(
+            [0.485, 0.456, 0.406],
+            [0.229, 0.224, 0.225]
+        )
     ])
 
-    full_dataset = ImageFolder(data_dir, transform=train_transform)
-    class_names  = full_dataset.classes
-    num_classes  = len(class_names)
-    print(f"\n[1/5] Dataset loaded")
-    print(f"      Classes ({num_classes}): {class_names}")
-    print(f"      Total images: {len(full_dataset)}")
+    full_dataset = datasets.ImageFolder(
+        data_dir
+    )
 
-    # ── Train/val split 80/20 ──────────────────────────────────────────────
-    val_size   = int(0.2 * len(full_dataset))
-    train_size = len(full_dataset) - val_size
-    train_set, val_set = random_split(full_dataset, [train_size, val_size])
-    # Apply val transform to val set
-    val_set.dataset = ImageFolder(data_dir, transform=val_transform)
+    class_names = full_dataset.classes
 
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True,  num_workers=2, pin_memory=True)
-    val_loader   = DataLoader(val_set,   batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True)
+    print("\nClasses Found:", len(class_names))
+    print("Total Images:", len(full_dataset))
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"      Device: {device}")
+    train_size = int(0.8 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
 
-    # ── Model: ResNet18 with transfer learning ──────────────────────────────
-    print("\n[2/5] Loading ResNet18 (pretrained on ImageNet)...")
-    model = models.resnet18(pretrained=True)
+    train_indices, val_indices = random_split(
+        range(len(full_dataset)),
+        [train_size, val_size]
+    )
 
-    # Freeze all layers first
+    train_dataset = torch.utils.data.Subset(
+        datasets.ImageFolder(
+            data_dir,
+            transform=train_transform
+        ),
+        train_indices.indices
+    )
+
+    val_dataset = torch.utils.data.Subset(
+        datasets.ImageFolder(
+            data_dir,
+            transform=val_transform
+        ),
+        val_indices.indices
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4
+    )
+
+    num_classes = len(class_names)
+
+    print("\nLoading ResNet18...")
+
+    weights = ResNet18_Weights.DEFAULT
+
+    model = models.resnet18(
+        weights=weights
+    )
+
     for param in model.parameters():
         param.requires_grad = False
 
-    # Replace final FC layer — only this trains in phase 1
-    model.fc = nn.Linear(512, num_classes)
+    model.fc = nn.Sequential(
+        nn.Dropout(0.5),
+        nn.Linear(
+            model.fc.in_features,
+            num_classes
+        )
+    )
 
     model = model.to(device)
 
     criterion = nn.CrossEntropyLoss()
 
-    # Phase 1: train only the final layer (5 epochs)
-    optimizer_phase1 = torch.optim.Adam(model.fc.parameters(), lr=lr)
+    optimizer_fc = torch.optim.Adam(
+        model.fc.parameters(),
+        lr=lr
+    )
 
-    # Phase 2: unfreeze all and fine-tune with lower LR
-    optimizer_phase2 = torch.optim.Adam(model.parameters(), lr=lr * 0.1)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_phase2, T_max=epochs)
+    optimizer_all = torch.optim.Adam(
+        model.parameters(),
+        lr=lr * 0.1
+    )
 
-    best_acc = 0.0
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer_all,
+        mode='max',
+        patience=2,
+        factor=0.5
+    )
 
-    print(f"\n[3/5] Training for {epochs} epochs...")
+    best_acc = 0
+    patience = 5
+    early_stop_counter = 0
+
+    print("\nTraining Started\n")
+
     for epoch in range(epochs):
+
+        if epoch == 3:
+            print("\nUnfreezing entire network...\n")
+
+            for param in model.parameters():
+                param.requires_grad = True
+
+        optimizer = (
+            optimizer_fc
+            if epoch < 3
+            else optimizer_all
+        )
+
         model.train()
 
-        # Phase 1: first 5 epochs — only fine-tune FC layer
-        if epoch < 5:
-            optimizer = optimizer_phase1
-            if epoch == 0:
-                print("      Phase 1: Training final layer only (epochs 1–5)")
-        else:
-            # Unfreeze all at epoch 5
-            if epoch == 5:
-                print("      Phase 2: Fine-tuning entire network (epochs 6+)")
-                for param in model.parameters():
-                    param.requires_grad = True
-            optimizer = optimizer_phase2
+        running_loss = 0
 
-        running_loss = 0.0
         for images, labels in train_loader:
-            images, labels = images.to(device), labels.to(device)
+
+            images = images.to(device)
+            labels = labels.to(device)
+
             optimizer.zero_grad()
+
             outputs = model(images)
-            loss    = criterion(outputs, labels)
+
+            loss = criterion(
+                outputs,
+                labels
+            )
+
             loss.backward()
+
             optimizer.step()
+
             running_loss += loss.item()
 
-        if epoch >= 5:
-            scheduler.step()
-
-        # Validation
         model.eval()
-        all_preds, all_labels = [], []
+
+        correct = 0
+        total = 0
+
         with torch.no_grad():
+
             for images, labels in val_loader:
-                images  = images.to(device)
+
+                images = images.to(device)
+                labels = labels.to(device)
+
                 outputs = model(images)
-                preds   = torch.argmax(outputs, dim=1).cpu().tolist()
-                all_preds.extend(preds)
-                all_labels.extend(labels.tolist())
 
-        acc = round(accuracy_score(all_labels, all_preds) * 100, 1)
-        avg_loss = round(running_loss / len(train_loader), 4)
-        print(f"      Epoch {epoch+1:2d}/{epochs} — Loss: {avg_loss:.4f} | Val Accuracy: {acc}%")
+                _, preds = torch.max(
+                    outputs,
+                    1
+                )
 
-        # Save best model
-        if acc > best_acc:
-            best_acc = acc
-            torch.save(model.state_dict(), MODEL_DIR / 'disease_model_best.pth')
+                total += labels.size(0)
 
-    # Final evaluation
-    print(f"\n[4/5] Final evaluation (best model: {best_acc}%)")
-    model.load_state_dict(torch.load(MODEL_DIR / 'disease_model_best.pth', map_location=device))
-    model.eval()
-    all_preds, all_labels = [], []
-    with torch.no_grad():
-        for images, labels in val_loader:
-            images = images.to(device)
-            preds  = torch.argmax(model(images), dim=1).cpu().tolist()
-            all_preds.extend(preds)
-            all_labels.extend(labels.tolist())
+                correct += (
+                    preds == labels
+                ).sum().item()
 
-    print("\nClassification Report:")
-    print(classification_report(all_labels, all_preds, target_names=class_names))
+        accuracy = (
+            100 * correct / total
+        )
 
-    # ── Save final model ───────────────────────────────────────────────────
-    print(f"[5/5] Saving model...")
-    MODEL_DIR.mkdir(exist_ok=True)
+        avg_loss = (
+            running_loss /
+            len(train_loader)
+        )
 
-    # Final model file (this is what Django loads)
-    torch.save(model.state_dict(), MODEL_DIR / 'disease_model.pth')
-    (MODEL_DIR / 'disease_model_accuracy.txt').write_text(str(best_acc))
-    (MODEL_DIR / 'disease_classes.txt').write_text('\n'.join(class_names))
+        print(
+            f"Epoch [{epoch+1}/{epochs}] "
+            f"Loss: {avg_loss:.4f} "
+            f"Val Acc: {accuracy:.2f}%"
+        )
 
-    print(f"\n✅ Done!")
-    print(f"   Model saved    : ml_models/disease_model.pth")
-    print(f"   Accuracy       : {best_acc}%")
-    print(f"   Classes file   : ml_models/disease_classes.txt")
-    print(f"\n   ⚠️  Update DISEASE_CLASSES list in agriculture/ml_utils.py")
-    print(f"      to match the order in disease_classes.txt\n")
+        if epoch >= 3:
+            scheduler.step(accuracy)
+
+        if accuracy > best_acc:
+
+            best_acc = accuracy
+
+            early_stop_counter = 0
+
+            MODEL_DIR.mkdir(
+                exist_ok=True
+            )
+
+            torch.save(
+                model.state_dict(),
+                MODEL_DIR /
+                "disease_model_best.pth"
+            )
+
+        else:
+            early_stop_counter += 1
+
+        if early_stop_counter >= patience:
+
+            print(
+                "\nEarly stopping triggered."
+            )
+
+            break
+
+    print(
+        f"\nBest Accuracy: "
+        f"{best_acc:.2f}%"
+    )
+
+    model.load_state_dict(
+        torch.load(
+            MODEL_DIR /
+            "disease_model_best.pth",
+            map_location=device
+        )
+    )
+
+    torch.save(
+        model.state_dict(),
+        MODEL_DIR /
+        "disease_model.pth"
+    )
+
+    with open(
+        MODEL_DIR /
+        "disease_classes.txt",
+        "w"
+    ) as f:
+
+        for cls in class_names:
+            f.write(cls + "\n")
+
+    with open(
+        MODEL_DIR /
+        "disease_model_accuracy.txt",
+        "w"
+    ) as f:
+
+        f.write(
+            str(
+                round(best_acc, 2)
+            )
+        )
+
+    print("\nModel Saved Successfully")
+    print("Classes:", len(class_names))
+    print("Best Accuracy:", best_acc)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data',   default='./dataset',
-                        help='Path to dataset folder (subfolders = class names)')
-    parser.add_argument('--epochs', type=int, default=15)
-    parser.add_argument('--batch',  type=int, default=32)
-    parser.add_argument('--lr',     type=float, default=1e-4)
+
+    parser.add_argument(
+        "--data",
+        default="dataset/color"
+    )
+
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=30
+    )
+
+    parser.add_argument(
+        "--batch",
+        type=int,
+        default=32
+    )
+
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=1e-4
+    )
+
     args = parser.parse_args()
-    train(args.data, args.epochs, args.batch, args.lr)
+
+    train(
+        args.data,
+        args.epochs,
+        args.batch,
+        args.lr
+    )

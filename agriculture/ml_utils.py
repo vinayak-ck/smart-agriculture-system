@@ -237,18 +237,32 @@ def predict_growth(ph, nitrogen, phosphorus, potassium, temperature, humidity, m
 # ─── IMAGE: GREENNESS SCORE ────────────────────────────────────────────────
 
 def extract_greenness(image_path):
-    """Returns 0–100 greenness score from plant image."""
+    from PIL import Image
+    import numpy as np
+
     try:
-        from PIL import Image
-        img = Image.open(image_path).convert('RGB').resize((64, 64))
+        img = Image.open(image_path).convert("RGB")
+        img = img.resize((128,128))
+
         pixels = np.array(img).astype(float)
-        r, g, b = pixels[:,:,0], pixels[:,:,1], pixels[:,:,2]
-        green_mask = (g > r) & (g > b) & (g > 60)
-        green_ratio = green_mask.sum() / (64 * 64)
-        # Weighted by green intensity
-        green_intensity = np.where(green_mask, (g - (r + b) / 2) / 255.0, 0).mean()
-        score = min(100, round((green_ratio * 60 + green_intensity * 40) * 100, 1))
-        return score
+
+        r = pixels[:,:,0]
+        g = pixels[:,:,1]
+        b = pixels[:,:,2]
+
+        # Excess Green Index
+        exg = (2*g - r - b)
+
+        score = np.mean(exg)
+
+        score = np.clip(
+            (score / 255) * 100,
+            0,
+            100
+        )
+
+        return round(float(score),1)
+
     except:
         return 70.0
 
@@ -329,6 +343,19 @@ DISEASE_TREATMENT = {
     }
 }
 
+def format_disease_name(name):
+    parts = name.split("___")
+
+    if len(parts) == 2:
+        crop = parts[0].replace("_", " ")
+        disease = parts[1].replace("_", " ")
+
+        if disease.lower() == "healthy":
+            return f"{crop} - Healthy"
+
+        return f"{crop} - {disease}"
+
+    return name
 
 def predict_disease(image_path):
     try:
@@ -372,6 +399,7 @@ def predict_disease(image_path):
             idx = int(torch.argmax(probs))
             confidence = round(float(probs[idx]) * 100, 1)
             disease_name = classes[idx] if idx < len(classes) else "Unknown"
+            display_name = format_disease_name(disease_name)
             model_acc = get_disease_model_accuracy()
             treatment = DISEASE_TREATMENT.get(disease_name, DISEASE_TREATMENT["Healthy"])
             is_healthy = "healthy" in disease_name.lower()
